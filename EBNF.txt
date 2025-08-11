@@ -1,0 +1,57 @@
+input         ::= ws* form* ws*
+
+form          ::= list | vector | map | set | string | number
+                | boolean | nil | char | keyword | symbol | quote
+                | quasiquote | unquote | splice | regex
+
+; ——— lists / vectors / maps / sets ———
+
+list          ::= "(" ws* form* (ws* "." ws* form)? ws* ")"   ; dotted pair optional
+vector        ::= "[" ws* form* ws* "]"
+map           ::= "{" ws* (form ws+ form)* ws* "}"
+set           ::= "#{" ws* form* ws* "}"
+
+; ——— quoting family ———
+
+quote         ::= "'" form               ; expands to (quote form)
+quasiquote    ::= "`" form               ; expands to (quasiquote form)
+unquote       ::= "," form               ; expands to (unquote form)
+splice        ::= ",@" form              ; expands to (splice form)
+
+; ——— atoms ———
+
+boolean       ::= "true" | "false" | "#t" | "#f"
+nil           ::= "nil"
+number        ::= integer | float | ratio
+integer       ::= sign? dec+
+float         ::= sign? ( dec+ "." dec* | "." dec+ ) exp? | dec+ exp
+ratio         ::= sign? dec+ "/" dec+                      ; exact rational
+exp           ::= ("e"|"E") sign? dec+
+sign          ::= "+" | "-"
+dec           ::= [0-9]
+
+string        ::= '"' string_char* '"'                     ; supports escapes
+string_char   ::= ~["\\] | escape
+escape        ::= "\\" ( ["\\/bnrt] | "u" hex hex hex hex )
+hex           ::= [0-9a-fA-F]
+
+char          ::= "#\\" ( named_char | any_single_char )
+named_char    ::= "newline" | "space" | "tab" | "return" | "backspace" | " formfeed"
+
+keyword       ::= ":" symbol_tail                           ; examples: :a :user/id
+symbol        ::= symbol_head symbol_tail?
+symbol_head   ::= [A-Za-z_*!?$<>=+/.-] | unicode_letter
+symbol_tail   ::= (symbol_head | [0-9] | ":")*
+
+regex         ::= "#\"" regex_body "\""                     ; minimal: no flags yet
+regex_body    ::= (~["\\] | escape)*
+
+; ——— comments & whitespace ———
+
+ws            ::= wsp | line_comment | block_comment
+wsp           ::= [ \t\r\n,]+                                ; commas are whitespace
+line_comment  ::= ";" ~[\n]* ("\n" | EOF)
+block_comment ::= "#|" ( block_comment | ~"|#" )* "|#"
+
+; ——— dispatch macros (reserved for later) ———
+; #_  reader discard, #? conditional read, etc. can be added later
