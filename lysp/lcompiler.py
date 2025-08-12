@@ -73,6 +73,8 @@ class Compiler:
             return self._compile_import_from(v, syn.span)
         if t == "export":
             return self._compile_export(v, syn.span)
+        if t == "dot":
+            return self._compile_dot(v, syn.span)
         raise CompileError(f"cannot compile tag: {t}")
 
     def compile_quoted(self, syn: Syn) -> A.expr:
@@ -101,8 +103,25 @@ class Compiler:
         items: List[Syn] = syn.val
         if not items: return self._with_span(A.Tuple(elts=[], ctx=A.Load()), syn.span)
         head = items[0]
+        # If the list is a single dot form like '(. obj m1 m2)', compile the dot directly without application
+        if len(items) == 1 and head.tag == "dot":
+            return self.compile_expr(head)
         if head.tag == "symbol":
             name = head.val.qual
+            # Treat (. obj m1 m2 ...) specially even if it comes in as a list
+            if name == ".":
+                if len(items) < 3:
+                    raise CompileError("(. object member ...) requires at least one member")
+                obj_syn = items[1]
+                members: List[str] = []
+                for m in items[2:]:
+                    if m.tag == "symbol":
+                        members.append(m.val.qual)
+                    elif m.tag == "string":
+                        members.append(m.val)
+                    else:
+                        raise CompileError("dot members must be symbols or strings")
+                return self._compile_dot({"object": obj_syn, "members": members}, syn.span)
             if name == "if": return self._compile_if(items, syn.span)
             if name == "begin": return self._compile_begin(items, syn.span)
             if name == "define": return self._compile_define(items, syn.span)
@@ -174,7 +193,7 @@ class Compiler:
             assign = A.Assign(targets=[A.Name(mangle_symbol(target.val), A.Store())], value=expr)
             self._set_span(assign, span)
             self.module_body.append(assign)
-            return self._with_span(A.Name(mangle_symbol(target.val), A.Load()), span)
+            return self._with_span(expr, span)
         else:
             raise CompileError("bad define target")
 
@@ -208,6 +227,21 @@ class Compiler:
             
         except MacroError as e:
             raise CompileError(f"macro definition error: {e}")
+
+    def _compile_dot(self, dot_data: Dict[str, Any], span: SrcSpan) -> A.expr:
+        """Compile (. object m1 m2 ...) form to dot_access(object, m1, m2, ...)"""
+        obj = self.compile_expr(dot_data["object"])
+        members = dot_data["members"]
+        
+        # Create a function call to dot_access with the object and all member names
+        args = [obj] + [A.Constant(member) for member in members]
+        call = A.Call(
+            func=A.Name("dot_access", A.Load()),
+            args=args,
+            keywords=[]
+        )
+        
+        return self._with_span(call, span)
 
     def _compile_import_module(self, import_data: Dict[str, Any], span: SrcSpan) -> A.expr:
         """Compile #import(module [as alias]) form"""

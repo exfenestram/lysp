@@ -7,10 +7,10 @@ from .lisp_adamantine import (lisp_map, lisp_cmap, lisp_emap, lisp_include, lisp
                              lisp_split, lisp_filter, lisp_remove, lisp_concat, lisp_take, 
                              lisp_drop, lisp_reverse, lisp_sort, lisp_unique)
 from .macros import expand_macros, define_syntax_rules, parse_syntax_rules
-from .python_imports import (import_python_module, import_python_from, get_python_entity, 
-                            get_python_module, list_python_imports, export_to_python, 
-                            create_python_module, list_lisp_exports, add_to_global_env,
-                            get_from_global_env, list_global_env, get_imported)
+from .python_imports import (import_python_module, import_python_from, get_python_entity,
+                                   get_python_module, list_python_imports, export_to_python,
+                                   create_python_module, list_lisp_exports)
+from .symbol_table import add_symbol, get_symbol, has_symbol, list_symbols
 
 # Reify lisp_* functions without the lisp_ prefix
 map = lisp_map
@@ -39,7 +39,7 @@ __all__ = [
     # Python import/export system
     "import_python_module", "import_python_from", "get_python_entity", "get_python_module",
     "list_python_imports", "export_to_python", "create_python_module", "list_lisp_exports",
-    "add_to_global_env", "get_from_global_env", "list_global_env", "get_imported"
+               "add_symbol", "get_symbol", "has_symbol", "list_symbols"
 ]
 
 # Persistent data shims
@@ -416,3 +416,11 @@ def recur(*args):
     # For now, just use recurse directly
     # TODO: Add proper loop context detection
     return recurse(*args)
+
+
+def dot_access(obj, *members):
+    """Access nested attributes: dot_access(obj, 'm1', 'm2') returns obj.m1.m2"""
+    current = obj
+    for member in members:
+        current = getattr(current, member)
+    return current

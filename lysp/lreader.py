@@ -161,6 +161,8 @@ class Reader:
 
         if ch == "#" and self.peek(1) == '"':
             return self.read_regex(sl, sc)
+        if ch == ".":
+            return self.read_dot(sl, sc)
         if ch in "+-0123456789":
             num = self.try_number()
             if num is not None:
@@ -360,6 +362,27 @@ class Reader:
             "python_name": python_name,
             "module_name": module_name
         }, self.span_from(sl, sc))
+
+    def read_dot(self, sl: int, sc: int) -> Syn:
+        """Read dot operator: (. object m1 m2 ...) returns object.m1.m2..."""
+        assert self.peek() == "."
+        self.advance()  # Skip "."
+        self.skip_ws_comments()
+        
+        # Read the object
+        obj = self.read_form()
+        self.skip_ws_comments()
+        
+        # Read the member names
+        members = []
+        while not self.eof() and self.peek() not in "()[]{}#\"'`,":
+            member = self.read_symbol_or_special(sl, sc)
+            if member.tag != "symbol":
+                raise ReaderError("member name must be a symbol")
+            members.append(member.val.qual)
+            self.skip_ws_comments()
+        
+        return Syn("dot", {"object": obj, "members": members}, self.span_from(sl, sc))
 
     def read_regex(self, sl: int, sc: int) -> Syn:
         assert self.peek() == "#" and self.peek(1) == '"'; self.advance(2)
