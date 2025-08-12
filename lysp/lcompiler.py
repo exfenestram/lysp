@@ -6,6 +6,7 @@ from typing import Any, List, Tuple, Dict
 from .lreader import Syn, Symbol, Keyword, SrcSpan
 from .builtins import _pvec, _pmap, _pset, _plist, _ratio, _kw, _sym, mangle_symbol, loop, tail_recursive
 from .macros import expand_macros, parse_syntax_rules, MacroError
+from .python_imports import import_python_module, import_python_from, export_to_python, create_python_module
 
 __all__ = [
     "Compiler", "compile_module"
@@ -66,6 +67,12 @@ class Compiler:
         if t == "tuple":
             elts = [self.compile_expr(e) for e in v]
             return self._with_span(A.Tuple(elts=elts, ctx=A.Load()), syn.span)
+        if t == "import-module":
+            return self._compile_import_module(v, syn.span)
+        if t == "import-from":
+            return self._compile_import_from(v, syn.span)
+        if t == "export":
+            return self._compile_export(v, syn.span)
         raise CompileError(f"cannot compile tag: {t}")
 
     def compile_quoted(self, syn: Syn) -> A.expr:
@@ -201,6 +208,81 @@ class Compiler:
             
         except MacroError as e:
             raise CompileError(f"macro definition error: {e}")
+
+    def _compile_import_module(self, import_data: Dict[str, Any], span: SrcSpan) -> A.expr:
+        """Compile #import(module [as alias]) form"""
+        module_name = import_data["module"]
+        alias = import_data.get("alias")
+        
+        # Call import_python_module function
+        args = [A.Constant(module_name)]
+        if alias:
+            args.append(A.Constant(alias))
+        
+        call = A.Call(
+            func=A.Name("import_python_module", A.Load()),
+            args=args,
+            keywords=[]
+        )
+        
+        return self._with_span(call, span)
+
+    def _compile_import_from(self, import_data: Dict[str, Any], span: SrcSpan) -> A.expr:
+        """Compile (import module (entity1 entity2 ...) [:as alias]) form"""
+        module_name = import_data["module"]
+        entities = import_data["entities"]
+        entity_aliases = import_data.get("entity_aliases", {})
+        module_alias = import_data.get("module_alias")
+        
+        # Build entity names and aliases
+        entity_names = []
+        alias_names = []
+        
+        for entity_name in entities:
+            entity_names.append(entity_name)
+            if entity_name in entity_aliases:
+                alias_names.append(entity_aliases[entity_name])
+            else:
+                alias_names.append(entity_name)
+        
+        # Call import_python_from function
+        args = [
+            A.Constant(module_name),
+            A.List(elts=[A.Constant(name) for name in entity_names], ctx=A.Load()),
+            A.List(elts=[A.Constant(name) for name in alias_names], ctx=A.Load())
+        ]
+        
+        call = A.Call(
+            func=A.Name("import_python_from", A.Load()),
+            args=args,
+            keywords=[]
+        )
+        
+        return self._with_span(call, span)
+
+    def _compile_export(self, export_data: Dict[str, Any], span: SrcSpan) -> A.expr:
+        """Compile #export(name [as python_name] [to module_name]) form"""
+        name = export_data["name"]
+        python_name = export_data.get("python_name")
+        module_name = export_data.get("module_name", "lisp")
+        
+        # Call export_to_python function
+        args = [
+            A.Constant(name),
+            A.Name(mangle_symbol(Symbol(name)), A.Load()),  # The actual entity to export
+            A.Constant(module_name)
+        ]
+        
+        if python_name:
+            args[0] = A.Constant(python_name)  # Use the Python name instead
+        
+        call = A.Call(
+            func=A.Name("export_to_python", A.Load()),
+            args=args,
+            keywords=[]
+        )
+        
+        return self._with_span(call, span)
 
     def _compile_lambda(self, items: List[Syn], span: SrcSpan) -> A.expr:
         if len(items) < 3: raise CompileError("(lambda (args) body...) ")

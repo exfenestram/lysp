@@ -158,6 +158,7 @@ class Reader:
             if tag == "splice": self.advance()
             form = self.read_form()
             return Syn(tag, form, self.span_from(sl, sc))
+
         if ch == "#" and self.peek(1) == '"':
             return self.read_regex(sl, sc)
         if ch in "+-0123456789":
@@ -174,6 +175,15 @@ class Reader:
             if self.eof(): raise ReaderError("unterminated list")
             items.append(self.read_form()); self.skip_ws_comments()
         self.advance()
+        
+        # Check if this is an import or export form
+        if items and items[0].tag == "symbol":
+            first_symbol = items[0].val.qual
+            if first_symbol == "import":
+                return self._parse_import_form(items, sl, sc)
+            elif first_symbol == "export":
+                return self._parse_export_form(items, sl, sc)
+        
         return Syn("list", items, self.span_from(sl, sc))
 
     def read_vector(self, sl: int, sc: int) -> Syn:
@@ -241,6 +251,115 @@ class Reader:
         assert self.peek() == ":"; self.advance()
         name = self.read_symbol_name()
         return Syn("keyword", _kw(name), self.span_from(sl, sc))
+
+    def _parse_import_form(self, items: List[Syn], sl: int, sc: int) -> Syn:
+        """Parse (import ...) form"""
+        if len(items) < 2:
+            raise ReaderError("import requires at least a module name")
+        
+        module_item = items[1]
+        if module_item.tag not in ("symbol", "string"):
+            raise ReaderError("module name must be a symbol or string")
+        
+        module_name = module_item.val if module_item.tag == "string" else module_item.val.qual
+        
+        # Parse options
+        module_alias = None
+        entities = None
+        entity_aliases = None
+        
+        i = 2
+        while i < len(items):
+            item = items[i]
+            
+            if item.tag == "keyword" and item.val.qual == ":as":
+                # Module alias
+                if i + 1 >= len(items):
+                    raise ReaderError(":as requires an alias name")
+                alias_item = items[i + 1]
+                if alias_item.tag != "symbol":
+                    raise ReaderError("alias must be a symbol")
+                module_alias = alias_item.val.qual
+                i += 2
+                
+            elif item.tag == "list":
+                # Entity list
+                entities = []
+                entity_aliases = {}
+                
+                for entity_item in item.val:
+                    if entity_item.tag in ("symbol", "string"):
+                        entity_name = entity_item.val if entity_item.tag == "string" else entity_item.val.qual
+                        entities.append(entity_name)
+                    else:
+                        raise ReaderError("entity must be a symbol or string")
+                
+                i += 1
+                
+            else:
+                # For now, just skip unexpected items
+                i += 1
+        
+        if entities:
+            return Syn("import-from", {
+                "module": module_name,
+                "module_alias": module_alias,
+                "entities": entities,
+                "entity_aliases": entity_aliases
+            }, self.span_from(sl, sc))
+        else:
+            return Syn("import-module", {
+                "module": module_name,
+                "alias": module_alias
+            }, self.span_from(sl, sc))
+
+    def _parse_export_form(self, items: List[Syn], sl: int, sc: int) -> Syn:
+        """Parse (export ...) form"""
+        if len(items) < 2:
+            raise ReaderError("export requires at least a name")
+        
+        name_item = items[1]
+        if name_item.tag != "symbol":
+            raise ReaderError("export name must be a symbol")
+        name = name_item.val.qual
+        
+        # Parse options
+        python_name = None
+        module_name = "lisp"  # Default
+        
+        i = 2
+        while i < len(items):
+            item = items[i]
+            
+            if item.tag == "keyword" and item.val.qual == ":as":
+                # Python name alias
+                if i + 1 >= len(items):
+                    raise ReaderError(":as requires a name")
+                alias_item = items[i + 1]
+                if alias_item.tag != "symbol":
+                    raise ReaderError("alias must be a symbol")
+                python_name = alias_item.val.qual
+                i += 2
+                
+            elif item.tag == "keyword" and item.val.qual == ":to":
+                # Module name
+                if i + 1 >= len(items):
+                    raise ReaderError(":to requires a module name")
+                module_item = items[i + 1]
+                if module_item.tag != "symbol":
+                    raise ReaderError("module name must be a symbol")
+                module_name = module_item.val.qual
+                i += 2
+                
+            else:
+                # For now, just skip unexpected items
+                i += 1
+        
+        return Syn("export", {
+            "name": name,
+            "python_name": python_name,
+            "module_name": module_name
+        }, self.span_from(sl, sc))
 
     def read_regex(self, sl: int, sc: int) -> Syn:
         assert self.peek() == "#" and self.peek(1) == '"'; self.advance(2)

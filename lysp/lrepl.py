@@ -10,7 +10,11 @@ from .builtins import (_pvec, _pmap, _pset, _plist, _kw, _sym, _ratio, loop, rec
                        map, cmap, emap, include, exclude, split, filter, remove, 
                        concat, take, drop, reverse, sort, unique,
                        # Macro system
-                       expand_macros, define_syntax_rules, parse_syntax_rules)
+                       expand_macros, define_syntax_rules, parse_syntax_rules,
+                       # Python import/export system
+                       import_python_module, import_python_from, get_python_entity, get_python_module,
+                       list_python_imports, export_to_python, create_python_module, list_lisp_exports,
+                       add_to_global_env, get_from_global_env, list_global_env, get_imported)
 import ast as A
 
 # Set up readline for line editing
@@ -92,7 +96,7 @@ except ImportError:
 
 BANNER = """Proto Lisp→Python-AST REPL (split version). Forms: quote, if, begin, define, lambda, let, set!, application.
 Data: (), [], {}, #{}, #(), strings, numbers, booleans, nil, :keywords.
-Features: Tab completion, command history, line editing, tail recursion, type-preserving functional programming, R7RS hygienic macros. Ctrl-D to exit.
+Features: Tab completion, command history, line editing, tail recursion, type-preserving functional programming, R7RS hygienic macros, modern import/export syntax. Ctrl-D to exit.
 """
 
 def _repr(v: Any) -> str:
@@ -104,6 +108,9 @@ def _repr(v: Any) -> str:
 
 def run_repl():
     print(BANNER)
+    # Get initial global environment
+    global_env = list_global_env()
+    
     env: Dict[str, Any] = {
             "_pvec": _pvec,
     "_pmap": _pmap,
@@ -136,6 +143,19 @@ def run_repl():
         "expand_macros": expand_macros,
         "define_syntax_rules": define_syntax_rules,
         "parse_syntax_rules": parse_syntax_rules,
+        # Python import/export system
+        "import_python_module": import_python_module,
+        "import_python_from": import_python_from,
+        "get_python_entity": get_python_entity,
+        "get_python_module": get_python_module,
+        "list_python_imports": list_python_imports,
+        "export_to_python": export_to_python,
+        "create_python_module": create_python_module,
+        "list_lisp_exports": list_lisp_exports,
+        "add_to_global_env": add_to_global_env,
+        "get_from_global_env": get_from_global_env,
+        "list_global_env": list_global_env,
+        "get_imported": get_imported,
         # Tiny prelude
         "+": lambda *xs: sum(xs),
         "-": lambda a, *rest: (-a if not rest else (a - sum(rest))),
@@ -154,6 +174,9 @@ def run_repl():
         "cdr": lambda x: x[1:] if x else [],
         "print": lambda *xs: print(*xs),
     }
+    
+    # Add global environment to the REPL environment
+    env.update(global_env)
     
     # Set up custom completer
     setup_completer(env)
@@ -179,10 +202,22 @@ def run_repl():
                 mod = compile_module(forms)
                 A.fix_missing_locations(mod)
                 code = compile(mod, filename="<repl>", mode="exec")
-                exec(code, env, env)
+                
+                # Always include the latest global environment
+                global_env = list_global_env()
+                combined_env = env.copy()
+                combined_env.update(global_env)
+                
+                exec(code, combined_env, combined_env)
+                
+                # Update the original environment with any new bindings
+                for key, value in combined_env.items():
+                    if key not in env or env[key] is not combined_env[key]:
+                        env[key] = combined_env[key]
+                
                 last_name = f"__expr{len(forms) - 1}"
-                if last_name in env:
-                    print(_repr(env[last_name]))
+                if last_name in combined_env:
+                    print(_repr(combined_env[last_name]))
             except Exception as ex:
                 print(f"! Error: {ex}")
             buf = ""
@@ -209,5 +244,10 @@ if __name__ == "__main__":
                 "filter": filter, "remove": remove, "concat": concat, "take": take, "drop": drop, "reverse": reverse,
                 "sort": sort, "unique": unique,
                 # Macro system
-                "expand_macros": expand_macros, "define_syntax_rules": define_syntax_rules, "parse_syntax_rules": parse_syntax_rules}
+                "expand_macros": expand_macros, "define_syntax_rules": define_syntax_rules, "parse_syntax_rules": parse_syntax_rules,
+                # Python import/export system
+                "import_python_module": import_python_module, "import_python_from": import_python_from,
+                "get_python_entity": get_python_entity, "get_python_module": get_python_module,
+                "list_python_imports": list_python_imports, "export_to_python": export_to_python,
+                "create_python_module": create_python_module, "list_lisp_exports": list_lisp_exports}
         exec(code, env, env)

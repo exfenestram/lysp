@@ -7,6 +7,10 @@ from .lisp_adamantine import (lisp_map, lisp_cmap, lisp_emap, lisp_include, lisp
                              lisp_split, lisp_filter, lisp_remove, lisp_concat, lisp_take, 
                              lisp_drop, lisp_reverse, lisp_sort, lisp_unique)
 from .macros import expand_macros, define_syntax_rules, parse_syntax_rules
+from .python_imports import (import_python_module, import_python_from, get_python_entity, 
+                            get_python_module, list_python_imports, export_to_python, 
+                            create_python_module, list_lisp_exports, add_to_global_env,
+                            get_from_global_env, list_global_env, get_imported)
 
 # Reify lisp_* functions without the lisp_ prefix
 map = lisp_map
@@ -31,7 +35,11 @@ __all__ = [
     "map", "cmap", "emap", "include", "exclude", "split", "filter", "remove", 
     "concat", "take", "drop", "reverse", "sort", "unique",
     # Macro system
-    "expand_macros", "define_syntax_rules", "parse_syntax_rules"
+    "expand_macros", "define_syntax_rules", "parse_syntax_rules",
+    # Python import/export system
+    "import_python_module", "import_python_from", "get_python_entity", "get_python_module",
+    "list_python_imports", "export_to_python", "create_python_module", "list_lisp_exports",
+    "add_to_global_env", "get_from_global_env", "list_global_env", "get_imported"
 ]
 
 # Persistent data shims
