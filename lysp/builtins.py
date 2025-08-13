@@ -5,12 +5,14 @@ from typing import Any, List, Tuple, Dict
 from .lreader import Symbol, _sym, _kw
 from .lisp_adamantine import (lisp_map, lisp_cmap, lisp_emap, lisp_include, lisp_exclude, 
                              lisp_split, lisp_filter, lisp_remove, lisp_concat, lisp_take, 
-                             lisp_drop, lisp_reverse, lisp_sort, lisp_unique)
+                             lisp_drop, lisp_reverse, lisp_sort, lisp_unique,
+                             lisp_foldl, lisp_group_by, lisp_papply)
 from .macros import expand_macros, define_syntax_rules, parse_syntax_rules
 from .python_imports import (import_python_module, import_python_from, get_python_entity,
                                    get_python_module, list_python_imports, export_to_python,
                                    create_python_module, list_lisp_exports)
 from .symbol_table import add_symbol, get_symbol, has_symbol, list_symbols
+from pyrsistent import pvector, pmap, pset, plist, l
 
 # Reify lisp_* functions without the lisp_ prefix
 map = lisp_map
@@ -27,13 +29,16 @@ drop = lisp_drop
 reverse = lisp_reverse
 sort = lisp_sort
 unique = lisp_unique
+foldl = lisp_foldl
+group_by = lisp_group_by
+papply = lisp_papply
 
 __all__ = [
     "_pvec", "_pmap", "_pset", "_plist", "_ratio", "_kw", "_sym", "mangle_symbol",
     "loop", "recur", "tail_recursive", "recurse", "mutual",
     # Type-preserving functional programming functions
     "map", "cmap", "emap", "include", "exclude", "split", "filter", "remove", 
-    "concat", "take", "drop", "reverse", "sort", "unique",
+    "concat", "take", "drop", "reverse", "sort", "unique", "foldl", "group_by", "papply",
     # Macro system
     "expand_macros", "define_syntax_rules", "parse_syntax_rules",
     # Python import/export system
@@ -68,16 +73,19 @@ def _ratio(n: int, d: int) -> Fraction:
     return Fraction(n, d)
 
 
-# Tail recursive implementation based on adamantine library
+# Tail recursion and optional utilities from adamantine (do not shadow Lisp FP fns)
 try:
     from adamantine.tail_recursive import tail_recursive, recurse, mutual
-    from adamantine.exec_models import map, cmap, emap, foldl, groupby, group_count, groupby_set, merge, is_empty, pairwise, pairwise_chain
-    from adamantine.exec_models import map_iter, cmap_iter, emap_iter, pairwise_iter, pairwise_chain_iter, walk, multi_foldl
-    from adamantine.exec_models import group_by_index
+    # Import non-conflicting helpers only (avoid map/include/etc. which we provide via lisp_adamantine)
+    from adamantine.exec_models import (
+        foldl as _adam_foldl, groupby, group_count, groupby_set, merge, is_empty, pairwise, pairwise_chain,
+        map_iter, cmap_iter, emap_iter, pairwise_iter, pairwise_chain_iter, walk, multi_foldl,
+        group_by_index,
+    )
     from adamantine.time_exec import time_exec
     from adamantine.apply import apply, apply_iter
-    from adamantine.partial import papply 
-    from adamantine.predicates import include, exclude, split, complement, all_of, some_of
+    from adamantine.partial import papply as _adam_papply 
+    from adamantine.predicates import complement, all_of, some_of
     from adamantine.lru_cache import cached, LRUCache, clear_cache, get_cache
     from adamantine.statistics import Deviator, apply_sequence, empty_deviator, zscore
     ADAMANTINE_AVAILABLE = True
@@ -326,7 +334,7 @@ class ContinuationPair():
         self._index ^= 1
         return res
 
-_allocated = l()
+_allocated = _plist([])
 
 def get_continuation():
     global _allocated

@@ -1,11 +1,13 @@
 from __future__ import annotations
-from typing import Any, List, Tuple, Dict, Callable, Iterator
+from typing import Any, List, Tuple, Dict, Callable, Iterator, Iterable
 from .lreader import Syn, SrcSpan
 
-# Import adamantine functions directly to avoid circular import
+# Import adamantine iterator helpers directly to avoid circular import
 try:
     from adamantine.exec_models import map_iter, cmap_iter, emap_iter
     from adamantine.predicates import include, exclude, split
+    from adamantine.exec_models import foldl as _foldl_impl
+    from adamantine.partial import papply as _papply_impl
 except ImportError:
     # Fallback implementations
     def map_iter(f, *args):
@@ -69,6 +71,17 @@ except ImportError:
             else:
                 false_items.append(el)
         return iter(true_items), iter(false_items)
+    
+    def _foldl_impl(f, initializer, iterable):
+        acc = initializer
+        for x in iterable:
+            acc = f(acc, x)
+        return acc
+    
+    def _papply_impl(func, *args, **kwargs):
+        def partial(*more_args, **more_kwargs):
+            return func(*args, *more_args, **kwargs, **more_kwargs)
+        return partial
 
 def _get_lisp_type_and_items(data: Any) -> Tuple[str, List[Any], SrcSpan]:
     """Extract type, items, and span from Lisp data structure"""
@@ -311,3 +324,23 @@ def lisp_unique(data: Any) -> Any:
             seen.add(item)
             result_items.append(item)
     return _create_lisp_result(data_type, result_items, span)
+
+# --- Additional helpers exposed in Lisp ---
+
+def lisp_foldl(f: Callable[[Any, Any], Any], initializer: Any, data: Any) -> Any:
+    """Left fold over a collection, producing a scalar accumulator."""
+    _, items, _ = _get_lisp_type_and_items(data)
+    return _foldl_impl(f, initializer, items)
+
+def lisp_group_by(data: Any, key: Callable[[Any], Any] = lambda x: x, value: Callable[[Any], Any] = lambda x: x) -> Dict[Any, List[Any]]:
+    """Group items by key function. Returns a Python dict of key -> list(values)."""
+    _, items, _ = _get_lisp_type_and_items(data)
+    groups: Dict[Any, List[Any]] = {}
+    for item in items:
+        k = key(item)
+        groups.setdefault(k, []).append(value(item))
+    return groups
+
+def lisp_papply(func: Callable, *args, **kwargs) -> Callable:
+    """Partial application; returns a function with preset positional/keyword args."""
+    return _papply_impl(func, *args, **kwargs)

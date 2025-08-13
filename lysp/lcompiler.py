@@ -130,6 +130,50 @@ class Compiler:
             if name == "let": return self._compile_let_desugared(items, syn.span)
             if name == "set!": return self._compile_setbang(items, syn.span)
             if name == "loop": return self._compile_loop(items, syn.span)
+            if name == "new":
+                if len(items) < 2:
+                    raise CompileError("(new Class args...) requires a class expression")
+                class_expr = self.compile_expr(items[1])
+                # Parse positional + keyword args
+                args_ast: List[A.expr] = []
+                keywords_ast: List[A.keyword] = []
+                i = 2
+                while i < len(items):
+                    arg_syn = items[i]
+                    if arg_syn.tag == "keyword":
+                        if i + 1 >= len(items):
+                            raise CompileError("keyword argument missing value")
+                        kw_name = arg_syn.val.qual
+                        kw_value = self.compile_expr(items[i + 1])
+                        keywords_ast.append(A.keyword(arg=kw_name, value=kw_value))
+                        i += 2
+                    else:
+                        args_ast.append(self.compile_expr(arg_syn))
+                        i += 1
+                call = A.Call(func=class_expr, args=args_ast, keywords=keywords_ast)
+                return self._with_span(call, syn.span)
+            if name == "init":
+                if len(items) < 2:
+                    raise CompileError("(init obj args...) requires an object expression")
+                obj_expr = self.compile_expr(items[1])
+                init_attr = A.Attribute(value=obj_expr, attr="__init__", ctx=A.Load())
+                args_ast: List[A.expr] = []
+                keywords_ast: List[A.keyword] = []
+                i = 2
+                while i < len(items):
+                    arg_syn = items[i]
+                    if arg_syn.tag == "keyword":
+                        if i + 1 >= len(items):
+                            raise CompileError("keyword argument missing value")
+                        kw_name = arg_syn.val.qual
+                        kw_value = self.compile_expr(items[i + 1])
+                        keywords_ast.append(A.keyword(arg=kw_name, value=kw_value))
+                        i += 2
+                    else:
+                        args_ast.append(self.compile_expr(arg_syn))
+                        i += 1
+                call = A.Call(func=init_attr, args=args_ast, keywords=keywords_ast)
+                return self._with_span(call, syn.span)
         fn_ast = self.compile_expr(items[0])
         # Support keyword arguments: (f a b :kw1 v1 :kw2 v2)
         args_ast: List[A.expr] = []
