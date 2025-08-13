@@ -265,7 +265,6 @@ if __name__ == "__main__":
         from .lreader import Reader
         r = Reader(src, file=sys.argv[1])
         forms = r.read()
-        print('FORMS', forms)
         mod = compile_module(forms)
         code = compile(mod, filename=sys.argv[1], mode="exec")
         

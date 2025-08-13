@@ -17,7 +17,7 @@ class PythonImporter:
         self.import_aliases: Dict[str, str] = {}
     
     def import_module(self, module_name: str, alias: Optional[str] = None) -> Any:
-        """Import a full Python module"""
+        """Import a full Python module by name"""
         try:
             if module_name in self.imported_modules:
                 module = self.imported_modules[module_name]
@@ -83,6 +83,19 @@ class PythonImporter:
 # Global Python importer instance
 python_importer = PythonImporter()
 
+def _bind_module_to_symbols(module: Any, symbol_name: str, import_all: bool) -> None:
+    """Helper to add module and its public attrs to the symbol table."""
+    add_symbol(symbol_name, module)
+    for attr_name in dir(module):
+        if not attr_name.startswith('_'):
+            try:
+                attr_value = getattr(module, attr_name)
+                add_symbol(f"{symbol_name}.{attr_name}", attr_value)
+                if import_all:
+                    add_symbol(attr_name, attr_value)
+            except Exception:
+                pass
+
 def import_python_module(module_name: str, alias: Optional[str] = None, import_all: bool = False) -> Any:
     """Import a Python module into Lisp
     If import_all is True, also bind all public attributes into the global symbol table by their bare names.
@@ -93,7 +106,6 @@ def import_python_module(module_name: str, alias: Optional[str] = None, import_a
         import builtins
         from types import ModuleType
         module = ModuleType("python")
-        # Expose only public callables from builtins
         for name in dir(builtins):
             if name.startswith('_'):
                 continue
@@ -104,51 +116,52 @@ def import_python_module(module_name: str, alias: Optional[str] = None, import_a
             if callable(val):
                 setattr(module, name, val)
         symbol_name = alias if alias else "python"
-        add_symbol(symbol_name, module)
-        for attr_name in dir(module):
-            if not attr_name.startswith('_'):
-                try:
-                    attr_value = getattr(module, attr_name)
-                    add_symbol(f"{symbol_name}.{attr_name}", attr_value)
-                    if import_all:
-                        add_symbol(attr_name, attr_value)
-                except Exception:
-                    pass
-        # Also register in sys.modules so Python-side imports see it if needed
+        _bind_module_to_symbols(module, symbol_name, import_all)
         sys.modules[symbol_name] = module
+        # Inject into caller globals
+        try:
+            import inspect
+            caller = inspect.currentframe().f_back
+            if caller is not None:
+                caller.f_globals[symbol_name] = module
+                if import_all:
+                    for attr_name in dir(module):
+                        if not attr_name.startswith('_'):
+                            try:
+                                caller.f_globals[attr_name] = getattr(module, attr_name)
+                            except Exception:
+                                pass
+        except Exception:
+            pass
         return module
 
     # Standard module import path
     module = python_importer.import_module(module_name, alias)
-    
-    # Add to centralized symbol table
     symbol_name = alias if alias else module_name
-    add_symbol(symbol_name, module)
-    
-    # Recursively add all objects from the module to the symbol table with qualified names
-    for attr_name in dir(module):
-        if not attr_name.startswith('_'):
-            try:
-                attr_value = getattr(module, attr_name)
-                full_name = f"{symbol_name}.{attr_name}"
-                add_symbol(full_name, attr_value)
-                # Optionally add bare names
-                if import_all:
-                    add_symbol(attr_name, attr_value)
-            except (AttributeError, TypeError):
-                pass
-    
+    _bind_module_to_symbols(module, symbol_name, import_all)
+    # Inject into caller globals
+    try:
+        import inspect
+        caller = inspect.currentframe().f_back
+        if caller is not None:
+            caller.f_globals[symbol_name] = module
+            if import_all:
+                for attr_name in dir(module):
+                    if not attr_name.startswith('_'):
+                        try:
+                            caller.f_globals[attr_name] = getattr(module, attr_name)
+                        except Exception:
+                            pass
+    except Exception:
+        pass
     return module
 
 def import_python_from(module_name: str, entity_names: List[str], 
                        aliases: Optional[List[str]] = None) -> Dict[str, Any]:
     """Import specific entities from a Python module"""
     imported_entities = python_importer.import_from(module_name, entity_names, aliases)
-    
-    # Add to centralized symbol table
     for alias, entity in imported_entities.items():
         add_symbol(alias, entity)
-    
     return imported_entities
 
 def get_python_entity(name: str) -> Optional[Any]:
@@ -194,13 +207,9 @@ class LispExporter:
         if module_name not in self.export_modules:
             return None
         
-        # Create a module-like object
         module = type(sys.modules[__name__])(module_name)
         module.__dict__.update(self.export_modules[module_name])
-        
-        # Add to sys.modules so it can be imported
         sys.modules[module_name] = module
-        
         return module
     
     def list_exports(self, module_name: str = "lisp") -> List[str]:

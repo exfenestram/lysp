@@ -1,15 +1,21 @@
 input         ::= ws* form* ws*
 
-form          ::= list | vector | map | set | string | number
-                | boolean | nil | char | keyword | symbol | quote
-                | quasiquote | unquote | splice | regex
+form          ::= list | vector | map | set | tuple | string | number
+                | boolean | nil | keyword | symbol | quote
+                | quasiquote | unquote | splice | regex | dot
 
-; ——— lists / vectors / maps / sets ———
+; ——— lists / vectors / maps / sets / tuples ———
 
-list          ::= "(" ws* form* (ws* "." ws* form)? ws* ")"   ; dotted pair optional
-vector        ::= "[" ws* form* ws* "]"
-map           ::= "{" ws* (form ws+ form)* ws* "}"
-set           ::= "#{" ws* form* ws* "}"
+list          ::= "(" ws* list_items? ws*")"
+list_items    ::= form (ws+ form)*
+vector        ::= "[" ws* vector_items? ws* "]"
+vector_items  ::= form (ws+ form)*
+map           ::= "{" ws* map_items? ws* "}"
+map_items     ::= (form ws+ form) (ws+ form ws+ form)*
+set           ::= "#{" ws* set_items? ws* "}"
+set_items     ::= form (ws+ form)*
+tuple         ::= "#(" ws* tuple_items? ws* ")"
+tuple_items   ::= form (ws+ form)*
 
 ; ——— quoting family ———
 
@@ -31,12 +37,9 @@ sign          ::= "+" | "-"
 dec           ::= [0-9]
 
 string        ::= '"' string_char* '"'                     ; supports escapes
-string_char   ::= ~["\\] | escape
-escape        ::= "\\" ( ["\\/bnrt] | "u" hex hex hex hex )
+string_char   ::= ~['"' '\\] | escape
+escape        ::= '\\' ( ['"'\\/bnrt] | 'u' hex hex hex hex )
 hex           ::= [0-9a-fA-F]
-
-char          ::= "#\\" ( named_char | any_single_char )
-named_char    ::= "newline" | "space" | "tab" | "return" | "backspace" | " formfeed"
 
 keyword       ::= ":" symbol_tail                           ; examples: :a :user/id
 symbol        ::= symbol_head symbol_tail?
@@ -44,7 +47,48 @@ symbol_head   ::= [A-Za-z_*!?$<>=+/.-] | unicode_letter
 symbol_tail   ::= (symbol_head | [0-9] | ":")*
 
 regex         ::= "#\"" regex_body "\""                     ; minimal: no flags yet
-regex_body    ::= (~["\\] | escape)*
+regex_body    ::= (~['"' '\\] | escape)*
+
+; ——— dot operator ———
+; (. object member1 member2 ...)
+; members are symbols (or strings in compiler fallback)
+
+dot           ::= "." ws* form ws+ member (ws+ member)*
+member        ::= symbol
+
+; ——— special forms (parsed as lists by reader, recognized by compiler) ———
+; The reader returns lists; these forms are recognized by the compiler:
+; if, begin, define, define-syntax, lambda, let, set!, loop
+
+; if              => (if test conseq [alt])
+; begin           => (begin expr ...)
+; define          => (define name expr) | (define (fname args...) body...)
+; define-syntax   => (define-syntax name (syntax-rules (lits...) (pat) tmpl) ...)
+; lambda          => (lambda (args...) body...)
+; let             => (let ((name expr) ...) body...)
+; set!            => (set! name expr)
+; loop/recur      => (loop ((name expr) ...) body...) with (recur ...)
+
+; ——— import/export forms (parsed by reader) ———
+
+import_form   ::= "(" ws* "import" ws+ import_spec ws* ")"
+import_spec   ::= module_name import_opts*
+                | module_name ws+ "(" import_entities ")" import_opts*
+module_name   ::= symbol | string
+import_entities ::= entity (ws+ entity)*
+entity        ::= symbol | string
+import_opts   ::= ws+ keyword (ws+ symbol)?                 ; :as alias | :all
+
+export_form   ::= "(" ws* "export" ws+ symbol export_opts* ws* ")"
+export_opts   ::= ws+ ":as" ws+ symbol
+                | ws+ ":to" ws+ symbol
+
+; ——— function application with keyword args ———
+; General list that is not a special form compiles to a call:
+; (fn arg* (:kw val)*)
+; The reader produces keywords as tokens beginning with :
+
+; Handled in compiler: positional args first, then keyword/value pairs
 
 ; ——— comments & whitespace ———
 
@@ -53,5 +97,22 @@ wsp           ::= [ \t\r\n,]+                                ; commas are whites
 line_comment  ::= ";" ~[\n]* ("\n" | EOF)
 block_comment ::= "#|" ( block_comment | ~"|#" )* "|#"
 
-; ——— dispatch macros (reserved for later) ———
-; #_  reader discard, #? conditional read, etc. can be added later
+; ——— unicode helper (conceptual) ———
+unicode_letter ::= /* any Unicode letter */
+
+; ——— regex character class reference (informative, matches Python's re) ———
+; The regex literal syntax delegates to Python's 're' engine. Common classes:
+;   .        any character except newline (unless DOTALL)
+;   \d       digit, Unicode category Nd
+;   \D       non-digit
+;   \s       whitespace: [ \t\n\r\f\v] plus Unicode spaces
+;   \S       non-whitespace
+;   \w       word char: letters, digits, underscore per Unicode
+;   \W       non-word char
+;   [...]     character set; supports ranges like a-z and class subtraction via caret ^ for negation
+; Escapes supported per string 'escape' rule above. Flags are not currently supported in literals.
+
+; ——— unicode identifier classes (informative) ———
+; unicode_letter corresponds to Unicode properties allowed at identifier start.
+; A practical approximation is any code point with general category in {Lu, Ll, Lt, Lm, Lo, Nl}.
+; For identifier continuation (used within symbol_tail), digits (Nd) and ':' are also permitted as specified.

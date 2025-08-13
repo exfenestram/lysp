@@ -131,8 +131,23 @@ class Compiler:
             if name == "set!": return self._compile_setbang(items, syn.span)
             if name == "loop": return self._compile_loop(items, syn.span)
         fn_ast = self.compile_expr(items[0])
-        args_ast = [self.compile_expr(a) for a in items[1:]]
-        call = A.Call(func=fn_ast, args=args_ast, keywords=[])
+        # Support keyword arguments: (f a b :kw1 v1 :kw2 v2)
+        args_ast: List[A.expr] = []
+        keywords_ast: List[A.keyword] = []
+        i = 1
+        while i < len(items):
+            arg_syn = items[i]
+            if arg_syn.tag == "keyword":
+                if i + 1 >= len(items):
+                    raise CompileError("keyword argument missing value")
+                kw_name = arg_syn.val.qual
+                kw_value = self.compile_expr(items[i + 1])
+                keywords_ast.append(A.keyword(arg=kw_name, value=kw_value))
+                i += 2
+            else:
+                args_ast.append(self.compile_expr(arg_syn))
+                i += 1
+        call = A.Call(func=fn_ast, args=args_ast, keywords=keywords_ast)
         return self._with_span(call, syn.span)
 
     def _compile_if(self, items: List[Syn], span: SrcSpan) -> A.expr:

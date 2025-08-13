@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a Lisp-to-Python compiler that translates Lisp code into Python AST (Abstract Syntax Tree) and executes it. The compiler supports a rich set of features including hygienic macros, functional programming utilities, and bidirectional Python integration.
+This is a Lisp-to-Python compiler that translates Lisp code into Python AST (Abstract Syntax Tree) and executes it. The compiler supports a rich set of features including hygienic macros, type-preserving functional programming utilities, immutable data structures, Python interop (including a pseudo-module for Python builtins), a dot operator for attribute access, and keyword arguments when calling Python functions.
 
 ## Table of Contents
 
@@ -12,9 +12,10 @@ This is a Lisp-to-Python compiler that translates Lisp code into Python AST (Abs
 4. [Functional Programming](#functional-programming)
 5. [Macro System](#macro-system)
 6. [Python Integration](#python-integration)
-7. [Tail Recursion](#tail-recursion)
-8. [Examples](#examples)
-9. [REPL Usage](#repl-usage)
+7. [Function Application and Keyword Arguments](#function-application-and-keyword-arguments)
+8. [Tail Recursion](#tail-recursion)
+9. [Examples](#examples)
+10. [REPL Usage](#repl-usage)
 
 ## Basic Syntax
 
@@ -91,6 +92,8 @@ Tuples are compiled to Python tuples.
 ,form       ; Unquote
 ,@form      ; Splice-unquote
 ```
+
+Quoted lists produce immutable `plist` values.
 
 ## Special Forms
 
@@ -236,7 +239,7 @@ The compiler implements R7RS-compliant hygienic macros using `syntax-rules`.
 - **Variables**: Replaced with bound values
 - **Literals**: Preserved as-is
 - **Ellipsis**: Expand to multiple elements
-- **Hygiene**: Automatic identifier renaming
+- **Hygiene**: Automatic identifier renaming. Core special forms and built-ins are kept stable.
 
 ### Built-in Macros
 
@@ -275,50 +278,38 @@ The compiler implements R7RS-compliant hygienic macros using `syntax-rules`.
   (else (print "else")))
 ```
 
-#### and
-```lisp
-(define-syntax and
-  (syntax-rules ()
-    ((and) true)
-    ((and test) test)
-    ((and test rest ...)
-     (if test (and rest ...) false))))
-
-(and true true false)  ; → false
-```
-
 ## Python Integration
 
 ### Importing Python into Lisp
-
-The new import syntax provides a more Lisp-like and flexible way to import Python modules and entities.
 
 #### Module Imports
 ```lisp
 (import module-name)
 (import module-name :as alias)
+(import module-name :all)          ; bind all public names as bare symbols too
 ```
 
 Examples:
 ```lisp
 (import math)
-(import numpy :as np)
+((. math sqrt) 16)                 ; → 4.0
+(import math :all)
+(sqrt 16)                          ; → 4.0 (bare name via :all)
 ```
 
 #### From Imports
 ```lisp
 (import module-name (entity1 entity2 ...))
-(import module-name (entity1 :as alias1 entity2 :as alias2 ...))
+(import module-name (entity1 entity2 ...) :as alias)
 ```
 
 Examples:
 ```lisp
 (import math (sqrt pi))
-(import numpy (array :as arr zeros :as z))
+((. math sqrt) 9)                  ; → 3.0
 ```
 
-#### Accessing Imported Entities (Dot Operator)
-After importing, you can access module members with the dot operator:
+#### Dot Operator (Attribute Access)
 ```lisp
 (. object member1 member2 ...)
 ```
@@ -328,54 +319,46 @@ After importing, you can access module members with the dot operator:
 Examples:
 ```lisp
 (import math)
-(. math pi)                 ; → 3.141592653589793
-(. math sqrt)               ; → <function> sqrt
-((. math sqrt) 16)          ; → 4.0
+(. math pi)                ; → 3.141592653589793
+(. math sqrt)              ; → <function> sqrt
+((. math sqrt) 16)         ; → 4.0
 
 (import numpy :as np)
-((. np array) [1 2 3])      ; construct a NumPy array
+((. np array) [1 2 3])     ; construct a NumPy array
+```
+
+#### Python Pseudo-Module
+```lisp
+(import python)
+(. python print)           ; -> <function> print
+((. python len) [1 2 3])   ; -> 3
+(import python :all)
+(len [1 2 3 4])            ; -> 4  (bare name via :all)
 ```
 
 Notes:
-- The result of `(. ...)` is not called automatically; it returns the object or function.
-- Use the enclosing call syntax to invoke returned callables: `((. module func) args...)`.
-- The symbol table is the single source of truth for imported symbols; imports are immediately available in the REPL.
+- Import binds the module symbol (e.g., `math`) and all qualified names (e.g., `math.sqrt`).
+- Using `:all` also binds public names as bare symbols (e.g., `sqrt`).
+- The result of `(. ...)` is not called automatically; wrap in `((. ...) args...)` to invoke.
 
-### Exporting Lisp to Python
+## Function Application and Keyword Arguments
 
-#### Export Functions/Data
+You can call Python (and Lisp) functions using positional and keyword arguments.
+
+- Positional arguments first, followed by keyword pairs `:name value`.
+- Example:
 ```lisp
-(export name)
-(export name :as python-name)
-(export name :to module-name)
-```
-
-Examples:
-```lisp
-(define factorial (lambda (n) 
-  (if (= n 0) 1 (* n (factorial (- n 1))))))
-(export factorial :as fact)
-(export factorial :to math_utils)
-```
-
-#### Create Python Modules
-```lisp
-(create_python_module "module-name")
-```
-
-Examples:
-```lisp
-(define double (lambda (x) (* x 2)))
-(export double)
-(create_python_module "lisp_utils")
+(import json)
+((. json dumps) {"a" 1} :indent 2 :sort_keys true)
+; Compiles to: json.dumps({"a": 1}, indent=2, sort_keys=True)
 ```
 
 ## Tail Recursion
 
-The compiler automatically detects and optimizes tail-recursive functions using the `adamantine` library.
+The compiler can optimize tail-recursive functions using a continuation-based system compatible with Adamantine’s tail recursion utilities.
 
 ### Automatic Detection
-Functions that call `recur` are automatically wrapped with `@tail_recursive`.
+Functions that call `recur` in a tail position are optimized.
 
 ### Manual Tail Recursion
 ```lisp
@@ -414,29 +397,17 @@ Functions that call `recur` are automatically wrapped with `@tail_recursive`.
 (print evens)    ; → plist([2, 4])
 ```
 
-### Advanced Examples
-
-#### Python Integration
+### Python Integration
 ```lisp
-; Import Python libraries
-(import math (sqrt pi))
-(import numpy :as np)
+(import math :all)           ; bind sqrt and pi as bare names
+(print (sqrt 16))            ; 4.0
+(print pi)                   ; 3.141592653589793
 
-; Use Python functions
-(define radius 5)
-(define area (* pi (* radius radius)))
-(print area)  ; → 78.53981633974483
-
-; Export Lisp functions to Python
-(define lisp-factorial
-  (lambda (n)
-    (if (= n 0) 1 (* n (lisp-factorial (- n 1))))))
-
-(export lisp-factorial :as factorial)
-(create_python_module "lisp_math")
+(import python :all)
+(print (len [1 2 3]))        ; 3
 ```
 
-#### Macro Examples
+### Macro Examples
 ```lisp
 ; Define a macro for list comprehensions
 (define-syntax list-comp
@@ -447,46 +418,6 @@ Functions that call `recur` are automatically wrapped with `@tail_recursive`.
 ; Use the macro
 (define squares (list-comp (* x x) for x in '(1 2 3 4 5)))
 (print squares)  ; → plist([1, 4, 9, 16, 25])
-
-; Define a macro for pattern matching
-(define-syntax match
-  (syntax-rules ()
-    ((match value
-       (pattern1 result1)
-       (pattern2 result2)
-       ...)
-     (cond
-       ((equal? value pattern1) result1)
-       ((equal? value pattern2) result2)
-       ...))))
-
-; Use pattern matching
-(define result (match 2
-  (1 "one")
-  (2 "two")
-  (else "other")))
-(print result)  ; → "two"
-```
-
-#### Functional Programming
-```lisp
-; Pipeline processing
-(define data '(1 2 3 4 5 6 7 8 9 10))
-(define result (->> data
-                   (filter (lambda (x) (> x 5)))
-                   (map (lambda (x) (* x x)))
-                   (take 3)))
-(print result)  ; → plist([36, 49, 64])
-
-; Higher-order functions
-(define compose
-  (lambda (f g)
-    (lambda (x) (f (g x)))))
-
-(define add1 (lambda (x) (+ x 1)))
-(define double (lambda (x) (* x 2)))
-(define add1-then-double (compose double add1))
-(print (add1-then-double 5))  ; → 12
 ```
 
 ## REPL Usage
@@ -515,6 +446,10 @@ python3 -m lysp.lrepl
 (import math)
 ((. math sqrt) 16)         ; → 4.0
 (. math pi)                ; → 3.141592653589793
+
+; Keyword arguments to Python functions
+(import json)
+((. json dumps) {"a" 1} :indent 2 :sort_keys true)
 
 ; Use macros
 (when true (print "hello")) ; → hello
@@ -564,27 +499,27 @@ The functional programming utilities preserve the type of their input:
 
 ## Performance Considerations
 
-1. **Immutable Data**: All data structures are immutable using `pyrsistent`
-2. **Tail Recursion**: Automatically optimized for stack efficiency
-3. **Macro Expansion**: Happens at compile time, no runtime overhead
-4. **Python Integration**: Direct access to Python objects, minimal overhead
+1. **Immutable Data**: All data structures use `pyrsistent` for immutability
+2. **Tail Recursion**: Optimized with continuation-based approach
+3. **Macro Expansion**: Happens at compile time
+4. **Python Integration**: Direct access to Python objects via imports and dot operator
 
 ## Best Practices
 
-1. **Use Tail Recursion**: For iterative algorithms to avoid stack overflow
+1. **Use Tail Recursion**: For iterative algorithms
 2. **Leverage Macros**: For domain-specific syntax and abstractions
-3. **Type Preservation**: Use appropriate data structures for your use case
-4. **Python Integration**: Import only what you need, export reusable functions
+3. **Type Preservation**: Use appropriate data structures
+4. **Python Integration**: `:all` for convenience; dot for explicit attribute access
 5. **Functional Style**: Prefer pure functions and immutable data
 
 ## Conclusion
 
 This Lisp compiler provides a powerful, modern Lisp implementation with:
 - Full R7RS hygienic macro system
-- Comprehensive functional programming utilities
-- Bidirectional Python integration
-- Automatic tail recursion optimization
+- Comprehensive type-preserving functional programming utilities
+- Python interop (modules, from-imports, dot access, pseudo-module of builtins, keyword args)
+- Tail recursion support
 - Immutable data structures
 - Rich REPL environment
 
-The compiler bridges the gap between Lisp's expressiveness and Python's ecosystem, making it ideal for both Lisp programming and Python integration scenarios.
+It bridges Lisp's expressiveness with Python's ecosystem for seamless interop and productivity.
