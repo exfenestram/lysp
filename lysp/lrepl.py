@@ -8,7 +8,7 @@ from .lcompiler import compile_module
 from .builtins import (_pvec, _pmap, _pset, _plist, _kw, _sym, _ratio, loop, recur, tail_recursive, recurse, mutual,
                        # Type-preserving functional programming functions
                        map, cmap, emap, include, exclude, split, filter, remove, 
-                       concat, take, drop, reverse, sort, unique,
+                       concat, take, drop, reverse, sort, unique, foldl, group_by, papply,
                        # Macro system
                        expand_macros, define_syntax_rules, parse_syntax_rules,
                        # Python import/export system
@@ -140,6 +140,9 @@ def initialize_symbol_table():
     add_symbol("reverse", reverse)
     add_symbol("sort", sort)
     add_symbol("unique", unique)
+    add_symbol("foldl", foldl)
+    add_symbol("group_by", group_by)
+    add_symbol("papply", papply)
     
     # Macro system
     add_symbol("expand_macros", expand_macros)

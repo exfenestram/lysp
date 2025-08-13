@@ -203,10 +203,17 @@ class Compiler:
         return self._with_span(node, span)
 
     def _compile_begin(self, items: List[Syn], span: SrcSpan) -> A.expr:
-        if len(items) == 1: return self._with_span(A.Constant(None), span)
+        if len(items) == 1:
+            return self._with_span(A.Constant(None), span)
+        # Evaluate all expressions in order and return the last one's value.
+        # Implement as: (lambda: [e1, e2, ..., en][-1])()
+        elts = [self.compile_expr(e) for e in items[1:]]
+        seq_list = A.List(elts=elts, ctx=A.Load())
+        last_idx = A.Constant(-1)
+        last_sub = A.Subscript(value=seq_list, slice=last_idx, ctx=A.Load())
         lam = A.Lambda(
             args=A.arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[], vararg=None, kwarg=None),
-            body=self.compile_expr(items[-1])
+            body=last_sub
         )
         return self._with_span(A.Call(func=lam, args=[], keywords=[]), span)
 

@@ -134,7 +134,7 @@ class Template:
             else:
                 # Unbound symbol - check if it's a special form, built-in, or ellipsis
                 special_forms = {"if", "begin", "define", "lambda", "let", "set!", "loop", "quote", "quasiquote", "unquote", "splice"}
-                built_ins = {"+", "-", "*", "/", "mod", "inc", "car", "cdr", "print", "map", "include", "take", "drop", "reverse", "sort", "list", "not", ".", "__getitem__", "cond", "let", "let*", "->", "->>"}
+                built_ins = {"+", "-", "*", "/", "mod", "inc", "car", "cdr", "print", "map", "include", "take", "drop", "reverse", "sort", "list", "not", ".", "__getitem__", "cond", "let", "let*", "->", "->>", "for-each", "doseq", "foldl"}
                 
                 if symbol_name in special_forms or symbol_name in built_ins or symbol_name == "...":
                     # Don't rename special forms, built-ins, or ellipsis
@@ -482,5 +482,47 @@ def _install_standard_macros() -> None:
                               Syn("list", [Syn("symbol", _sym("op"), span), Syn("symbol", _sym("args"), span), Syn("symbol", _sym("..."), span), Syn("symbol", _sym("x"), span)], span),
                               Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span)
     define_syntax_rules("->>", [], [(pat_tf0, tmpl_tf0), (pat_tf1, tmpl_tf1)])
+
+    # for-each: strict evaluation via foldl
+    # (for-each (x coll) body ...) => (foldl (lambda (acc x) (begin body ... acc)) nil coll)
+    for_each_sym = Syn("symbol", _sym("for-each"), span)
+    lambda_sym = Syn("symbol", _sym("lambda"), span)
+    foldl_sym = Syn("symbol", _sym("foldl"), span)
+    nil_sym = Syn("nil", None, span)
+
+    pat_fe = Syn("list", [for_each_sym,
+                            Syn("list", [Syn("symbol", _sym("x"), span), Syn("symbol", _sym("coll"), span)], span),
+                            Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span)
+    # (foldl (lambda (acc x) (begin body ... acc)) nil coll)
+    tmpl_fe = Syn("list", [foldl_sym,
+                             Syn("list", [lambda_sym,
+                                           Syn("list", [Syn("symbol", _sym("acc"), span), Syn("symbol", _sym("x"), span)], span),
+                                           Syn("list", [begin_sym,
+                                                         Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span),
+                                                         Syn("symbol", _sym("acc"), span)], span)], span),
+                             nil_sym,
+                             Syn("symbol", _sym("coll"), span)], span)
+
+    define_syntax_rules("for-each", [], [(pat_fe, tmpl_fe)])
+
+    # doseq: nested iteration
+    doseq_sym = Syn("symbol", _sym("doseq"), span)
+
+    # (doseq () body ...) -> (begin body ...)
+    pat_ds0 = Syn("list", [doseq_sym, Syn("list", [], span), Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span)
+    tmpl_ds0 = Syn("list", [begin_sym, Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span)
+
+    # (doseq ((x xs) rest ...) body ...) -> (for-each (x xs) (doseq (rest ...) body ...))
+    pat_ds1 = Syn("list", [doseq_sym,
+                             Syn("list", [Syn("list", [Syn("symbol", _sym("x"), span), Syn("symbol", _sym("xs"), span)], span),
+                                            Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span),
+                             Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span)
+    tmpl_ds1 = Syn("list", [for_each_sym,
+                              Syn("list", [Syn("symbol", _sym("x"), span), Syn("symbol", _sym("xs"), span)], span),
+                              Syn("list", [doseq_sym,
+                                            Syn("list", [Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span),
+                                            Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span)], span)
+
+    define_syntax_rules("doseq", [], [(pat_ds0, tmpl_ds0), (pat_ds1, tmpl_ds1)])
 
 _install_standard_macros()
