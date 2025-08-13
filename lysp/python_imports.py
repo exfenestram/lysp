@@ -86,7 +86,39 @@ python_importer = PythonImporter()
 def import_python_module(module_name: str, alias: Optional[str] = None, import_all: bool = False) -> Any:
     """Import a Python module into Lisp
     If import_all is True, also bind all public attributes into the global symbol table by their bare names.
+    Special-case: module_name == "python" creates a pseudo-module of Python built-in functions.
     """
+    # Special handling for the pseudo-module 'python'
+    if module_name == "python":
+        import builtins
+        from types import ModuleType
+        module = ModuleType("python")
+        # Expose only public callables from builtins
+        for name in dir(builtins):
+            if name.startswith('_'):
+                continue
+            try:
+                val = getattr(builtins, name)
+            except AttributeError:
+                continue
+            if callable(val):
+                setattr(module, name, val)
+        symbol_name = alias if alias else "python"
+        add_symbol(symbol_name, module)
+        for attr_name in dir(module):
+            if not attr_name.startswith('_'):
+                try:
+                    attr_value = getattr(module, attr_name)
+                    add_symbol(f"{symbol_name}.{attr_name}", attr_value)
+                    if import_all:
+                        add_symbol(attr_name, attr_value)
+                except Exception:
+                    pass
+        # Also register in sys.modules so Python-side imports see it if needed
+        sys.modules[symbol_name] = module
+        return module
+
+    # Standard module import path
     module = python_importer.import_module(module_name, alias)
     
     # Add to centralized symbol table
