@@ -83,25 +83,28 @@ class PythonImporter:
 # Global Python importer instance
 python_importer = PythonImporter()
 
-def import_python_module(module_name: str, alias: Optional[str] = None) -> Any:
-    """Import a Python module into Lisp"""
+def import_python_module(module_name: str, alias: Optional[str] = None, import_all: bool = False) -> Any:
+    """Import a Python module into Lisp
+    If import_all is True, also bind all public attributes into the global symbol table by their bare names.
+    """
     module = python_importer.import_module(module_name, alias)
     
     # Add to centralized symbol table
     symbol_name = alias if alias else module_name
     add_symbol(symbol_name, module)
     
-    # Recursively add all objects from the module to the symbol table
+    # Recursively add all objects from the module to the symbol table with qualified names
     for attr_name in dir(module):
-        # Skip private attributes and special methods
         if not attr_name.startswith('_'):
             try:
                 attr_value = getattr(module, attr_name)
-                # Add with module prefix to avoid conflicts
                 full_name = f"{symbol_name}.{attr_name}"
                 add_symbol(full_name, attr_value)
+                # Optionally add bare names
+                if import_all:
+                    add_symbol(attr_name, attr_value)
             except (AttributeError, TypeError):
-                pass  # Skip attributes that can't be accessed
+                pass
     
     return module
 

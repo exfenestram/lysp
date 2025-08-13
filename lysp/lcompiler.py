@@ -247,6 +247,7 @@ class Compiler:
         """Compile #import(module [as alias]) form"""
         module_name = import_data["module"]
         alias = import_data.get("alias")
+        import_all = import_data.get("all", False)
         
         # Call import_python_module function
         args = [A.Constant(module_name)]
@@ -256,7 +257,7 @@ class Compiler:
         call = A.Call(
             func=A.Name("import_python_module", A.Load()),
             args=args,
-            keywords=[]
+            keywords=[A.keyword(arg="import_all", value=A.Constant(True))] if import_all else []
         )
         
         return self._with_span(call, span)

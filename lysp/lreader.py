@@ -269,12 +269,13 @@ class Reader:
         module_alias = None
         entities = None
         entity_aliases = None
+        import_all = False
         
         i = 2
         while i < len(items):
             item = items[i]
             
-            if item.tag == "keyword" and item.val.qual == ":as":
+            if item.tag == "keyword" and item.val.qual == "as":
                 # Module alias
                 if i + 1 >= len(items):
                     raise ReaderError(":as requires an alias name")
@@ -283,6 +284,10 @@ class Reader:
                     raise ReaderError("alias must be a symbol")
                 module_alias = alias_item.val.qual
                 i += 2
+                
+            elif item.tag == "keyword" and item.val.qual == "all":
+                import_all = True
+                i += 1
                 
             elif item.tag == "list":
                 # Entity list
@@ -301,6 +306,14 @@ class Reader:
             else:
                 # For now, just skip unexpected items
                 i += 1
+        
+        # :all takes precedence over specific entities
+        if import_all:
+            return Syn("import-module", {
+                "module": module_name,
+                "alias": module_alias,
+                "all": True
+            }, self.span_from(sl, sc))
         
         if entities:
             return Syn("import-from", {
@@ -333,7 +346,7 @@ class Reader:
         while i < len(items):
             item = items[i]
             
-            if item.tag == "keyword" and item.val.qual == ":as":
+            if item.tag == "keyword" and item.val.qual == "as":
                 # Python name alias
                 if i + 1 >= len(items):
                     raise ReaderError(":as requires a name")
@@ -343,7 +356,7 @@ class Reader:
                 python_name = alias_item.val.qual
                 i += 2
                 
-            elif item.tag == "keyword" and item.val.qual == ":to":
+            elif item.tag == "keyword" and item.val.qual == "to":
                 # Module name
                 if i + 1 >= len(items):
                     raise ReaderError(":to requires a module name")
