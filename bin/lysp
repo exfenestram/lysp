@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+
+# Launch the Lysp REPL
+exec python3 -m lysp.lrepl "$@"
+
+

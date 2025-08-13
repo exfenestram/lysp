@@ -4,7 +4,7 @@ import os
 # Configure adamantine source
 # You can override this via environment variable ADAMANTINE_GIT_URL, e.g.:
 #   export ADAMANTINE_GIT_URL=https://github.com/adamantine-lang/adamantine.git@main
-_default_adamantine = "https://github.com/adamantine-lang/adamantine.git"
+_default_adamantine = "https://github.com/exfenestram/adamantine.git"
 _raw_url = os.environ.get("ADAMANTINE_GIT_URL", _default_adamantine)
 # Ensure PEP 508 style direct URL (prefix with git+ if missing)
 _adamantine_url = _raw_url if _raw_url.startswith("git+") else f"git+{_raw_url}"
@@ -37,6 +37,7 @@ setup(
             "lysp=lysp.lrepl:run_repl",
         ]
     },
+    scripts=["bin/lysp"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3 :: Only",
