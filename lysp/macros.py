@@ -130,7 +130,7 @@ class Template:
             else:
                 # Unbound symbol - check if it's a special form, built-in, or ellipsis
                 special_forms = {"if", "begin", "define", "lambda", "let", "set!", "loop", "quote", "quasiquote", "unquote", "splice"}
-                built_ins = {"+", "-", "*", "/", "mod", "inc", "car", "cdr", "print", "map", "include", "take", "drop", "reverse", "sort", "list", "not"}
+                built_ins = {"+", "-", "*", "/", "mod", "inc", "car", "cdr", "print", "map", "include", "take", "drop", "reverse", "sort", "list", "not", ".", "__getitem__"}
                 
                 if symbol_name in special_forms or symbol_name in built_ins or symbol_name == "...":
                     # Don't rename special forms, built-ins, or ellipsis
@@ -196,6 +196,31 @@ class Template:
                 for item in template.val
             ]
             return Syn("vector", expanded_items, template.span)
+        elif template.tag == "tuple":
+            # Support ellipsis inside tuple templates similar to lists
+            items = template.val
+            expanded_items = []
+            i = 0
+            while i < len(items):
+                if i < len(items) - 1 and self._is_ellipsis(items[i + 1]):
+                    # Ellipsis expansion for tuple elements
+                    if items[i].tag == "symbol":
+                        var_name = items[i].val.qual
+                        if var_name in bindings:
+                            ellipsis_values = bindings[var_name]
+                            if isinstance(ellipsis_values, list):
+                                for value in ellipsis_values:
+                                    expanded_items.append(value)
+                            else:
+                                expanded_items.append(ellipsis_values)
+                            i += 2
+                            continue
+                    # Fallback regular expansion
+                expanded_items.append(
+                    self._expand_template(items[i], bindings, gensym_counter, local_bindings)
+                )
+                i += 1
+            return Syn("tuple", expanded_items, template.span)
         
         else:
             # For other types, return as-is
@@ -334,3 +359,39 @@ def define_syntax_rules(name: str, literals: List[str], rules: List[Tuple[Syn, S
 def expand_macros(expr: Syn) -> Syn:
     """Expand all macros in an expression"""
     return macro_expander.expand_macros(expr)
+
+# --- Standard macros installed by default ---
+
+def _install_standard_macros() -> None:
+    # index macro: recursive expansion for nested indexing
+    from .lreader import _sym
+    span = SrcSpan("<macro>",1,1,1,1)
+    dot_sym = Syn("symbol", _sym("."), span)
+    getitem_sym = Syn("symbol", _sym("__getitem__"), span)
+
+    # Rule 1: (index coll idx) -> ((. coll __getitem__) idx)
+    pat1 = Syn("list", [Syn("symbol", _sym("index"), span),
+                         Syn("symbol", _sym("coll"), span),
+                         Syn("symbol", _sym("idx"), span)], span)
+    tmpl1 = Syn("list", [
+        Syn("list", [dot_sym, Syn("symbol", _sym("coll"), span), getitem_sym], span),
+        Syn("symbol", _sym("idx"), span)
+    ], span)
+
+    # Rule 2: (index coll idx1 idxrest ...) -> (index ((. coll __getitem__) idx1) idxrest ...)
+    pat2 = Syn("list", [Syn("symbol", _sym("index"), span),
+                         Syn("symbol", _sym("coll"), span),
+                         Syn("symbol", _sym("idx1"), span),
+                         Syn("symbol", _sym("idxrest"), span),
+                         Syn("symbol", _sym("..."), span)], span)
+    tmpl2 = Syn("list", [
+        Syn("symbol", _sym("index"), span),
+        Syn("list", [dot_sym, Syn("symbol", _sym("coll"), span), getitem_sym], span),
+        Syn("symbol", _sym("idx1"), span),
+        Syn("symbol", _sym("idxrest"), span),
+        Syn("symbol", _sym("..."), span)
+    ], span)
+
+    define_syntax_rules("index", [], [(pat1, tmpl1), (pat2, tmpl2)])
+
+_install_standard_macros()
