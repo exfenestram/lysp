@@ -14,7 +14,7 @@ All of these data structures are immutable, and implemented by the Pyrsistent li
 Tail recursion is fully supported with the "recur" keyword.
 
 
-Simple import/export syntax
+##Simple import/export syntax
 To import, use the forms
 
 (import module)
