@@ -54,12 +54,16 @@ class Pattern:
                     # Bind the ellipsis variable to the remaining items
                     bindings[ellipsis_var] = input_items[len(pattern_items) - 2:]
                     return True
-                else:
-                    # Match each remaining item against the ellipsis pattern
-                    for i in range(len(pattern_items) - 2, len(input_items)):
-                        if not self._match_pattern(ellipsis_pattern, input_items[i], bindings):
-                            return False
+                # New: if the ellipsis pattern is a simple variable symbol, bind it to the list of remaining items
+                if ellipsis_pattern.tag == "symbol":
+                    var_name = ellipsis_pattern.val.qual
+                    bindings[var_name] = input_items[len(pattern_items) - 2:]
                     return True
+                # Otherwise, match each remaining item against the ellipsis pattern
+                for i in range(len(pattern_items) - 2, len(input_items)):
+                    if not self._match_pattern(ellipsis_pattern, input_items[i], bindings):
+                        return False
+                return True
             
             else:
                 # No ellipsis - lengths must match
@@ -130,7 +134,7 @@ class Template:
             else:
                 # Unbound symbol - check if it's a special form, built-in, or ellipsis
                 special_forms = {"if", "begin", "define", "lambda", "let", "set!", "loop", "quote", "quasiquote", "unquote", "splice"}
-                built_ins = {"+", "-", "*", "/", "mod", "inc", "car", "cdr", "print", "map", "include", "take", "drop", "reverse", "sort", "list", "not", ".", "__getitem__"}
+                built_ins = {"+", "-", "*", "/", "mod", "inc", "car", "cdr", "print", "map", "include", "take", "drop", "reverse", "sort", "list", "not", ".", "__getitem__", "cond", "let", "let*", "->", "->>"}
                 
                 if symbol_name in special_forms or symbol_name in built_ins or symbol_name == "...":
                     # Don't rename special forms, built-ins, or ellipsis
@@ -301,7 +305,9 @@ class MacroExpander:
             if head.tag == "symbol" and head.val.qual in self.macros:
                 # This is a macro call
                 macro = self.macros[head.val.qual]
-                return macro.expand(expr)
+                expanded = macro.expand(expr)
+                # Recursively expand the result to a fixed point
+                return self.expand_macros(expanded)
             else:
                 # Recursively expand sub-expressions
                 expanded_items = [self.expand_macros(item) for item in items]
@@ -393,5 +399,88 @@ def _install_standard_macros() -> None:
     ], span)
 
     define_syntax_rules("index", [], [(pat1, tmpl1), (pat2, tmpl2)])
+
+    # let*: sequential bindings
+    from .lreader import _sym
+    span = SrcSpan("<macro>",1,1,1,1)
+    let_sym = Syn("symbol", _sym("let"), span)
+    begin_sym = Syn("symbol", _sym("begin"), span)
+    letstar_sym = Syn("symbol", _sym("let*"), span)
+
+    #
+    # (let* () body ...) -> (begin body ...)
+    pat_ls0 = Syn("list", [letstar_sym,
+                             Syn("list", [], span),
+                             Syn("symbol", _sym("body"), span),
+                             Syn("symbol", _sym("..."), span)], span)
+    tmpl_ls0 = Syn("list", [begin_sym,
+                              Syn("symbol", _sym("body"), span),
+                              Syn("symbol", _sym("..."), span)], span)
+
+    # (let* ((n v) rest ...) body ...) -> (let ((n v)) (let* (rest ...) body ...))
+    pat_ls1 = Syn("list", [letstar_sym,
+                             Syn("list", [Syn("list", [Syn("symbol", _sym("n"), span), Syn("symbol", _sym("v"), span)], span),
+                                            Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span),
+                             Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span)
+    tmpl_ls1 = Syn("list", [let_sym,
+                              Syn("list", [Syn("list", [Syn("symbol", _sym("n"), span), Syn("symbol", _sym("v"), span)], span)], span),
+                              Syn("list", [letstar_sym,
+                                            Syn("list", [Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span),
+                                            Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span)], span)
+
+    define_syntax_rules("let*", [], [(pat_ls0, tmpl_ls0), (pat_ls1, tmpl_ls1)])
+
+    # cond macro
+    cond_sym = Syn("symbol", _sym("cond"), span)
+    if_sym = Syn("symbol", _sym("if"), span)
+    else_sym = Syn("symbol", _sym("else"), span)
+
+    # (cond (else body ...)) -> (begin body ...)
+    pat_c0 = Syn("list", [cond_sym,
+                            Syn("list", [else_sym, Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span)], span)
+    tmpl_c0 = Syn("list", [begin_sym, Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span)
+
+    # (cond (test body ...) rest ...) -> (if test (begin body ...) (cond rest ...))
+    pat_c1 = Syn("list", [cond_sym,
+                            Syn("list", [Syn("symbol", _sym("test"), span), Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span),
+                            Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span)
+    tmpl_c1 = Syn("list", [if_sym,
+                             Syn("symbol", _sym("test"), span),
+                             Syn("list", [begin_sym, Syn("symbol", _sym("body"), span), Syn("symbol", _sym("..."), span)], span),
+                             Syn("list", [cond_sym, Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span)], span)
+
+    define_syntax_rules("cond", ["else"], [(pat_c0, tmpl_c0), (pat_c1, tmpl_c1)])
+
+    # Threading macros -> and ->>
+    thread_first = Syn("symbol", _sym("->"), span)
+    thread_last = Syn("symbol", _sym("->>"), span)
+
+    # (-> x forms ...) => fold: insert x as first arg into each list form, sequentially
+    # Implement via small-step recursion with base rule
+    pat_t0 = Syn("list", [thread_first, Syn("symbol", _sym("x"), span)], span)
+    tmpl_t0 = Syn("symbol", _sym("x"), span)
+    # (-> x (f args ...) rest ...) -> (-> (f x args ...) rest ...)
+    pat_t1 = Syn("list", [thread_first,
+                            Syn("symbol", _sym("x"), span),
+                            Syn("list", [Syn("symbol", _sym("f"), span), Syn("symbol", _sym("args"), span), Syn("symbol", _sym("..."), span)], span),
+                            Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span)
+    tmpl_t1 = Syn("list", [thread_first,
+                             Syn("list", [Syn("symbol", _sym("f"), span), Syn("symbol", _sym("x"), span), Syn("symbol", _sym("args"), span), Syn("symbol", _sym("..."), span)], span),
+                             Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span)
+
+    define_syntax_rules("->", [], [(pat_t0, tmpl_t0), (pat_t1, tmpl_t1)])
+
+    # (->> x) -> x
+    pat_tf0 = Syn("list", [thread_last, Syn("symbol", _sym("x"), span)], span)
+    tmpl_tf0 = Syn("symbol", _sym("x"), span)
+    # (->> x (op args ...) rest ...) -> (->> (op args ... x) rest ...)
+    pat_tf1 = Syn("list", [thread_last,
+                             Syn("symbol", _sym("x"), span),
+                             Syn("list", [Syn("symbol", _sym("op"), span), Syn("symbol", _sym("args"), span), Syn("symbol", _sym("..."), span)], span),
+                             Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span)
+    tmpl_tf1 = Syn("list", [thread_last,
+                              Syn("list", [Syn("symbol", _sym("op"), span), Syn("symbol", _sym("args"), span), Syn("symbol", _sym("..."), span), Syn("symbol", _sym("x"), span)], span),
+                              Syn("symbol", _sym("rest"), span), Syn("symbol", _sym("..."), span)], span)
+    define_syntax_rules("->>", [], [(pat_tf0, tmpl_tf0), (pat_tf1, tmpl_tf1)])
 
 _install_standard_macros()
