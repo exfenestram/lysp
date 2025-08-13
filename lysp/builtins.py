@@ -44,7 +44,10 @@ __all__ = [
     # Python import/export system
     "import_python_module", "import_python_from", "get_python_entity", "get_python_module",
     "list_python_imports", "export_to_python", "create_python_module", "list_lisp_exports",
-               "add_symbol", "get_symbol", "has_symbol", "list_symbols"
+               "add_symbol", "get_symbol", "has_symbol", "list_symbols",
+    # I/O
+    "slurp", "spit", "read_lines", "write_lines", "with_open", "read_stdin", "read_stdin_lines",
+    "read", "write"
 ]
 
 # Persistent data shims
@@ -432,3 +435,76 @@ def dot_access(obj, *members):
     for member in members:
         current = getattr(current, member)
     return current
+
+
+# ------------------ Lispish I/O helpers ------------------
+
+def slurp(path: str, encoding: str = "utf-8") -> str:
+    """Read entire file into a string (UTF-8 by default)."""
+    with open(path, "r", encoding=encoding) as fh:
+        return fh.read()
+
+def spit(path: str, data: object, encoding: str = "utf-8", append: bool = False) -> None:
+    """Write stringified data to file. If append=True, appends; otherwise overwrites."""
+    mode = "a" if append else "w"
+    with open(path, mode, encoding=encoding) as fh:
+        fh.write(str(data))
+
+def read_lines(path: str, encoding: str = "utf-8"):
+    """Read file lines into a persistent vector (without trailing newlines)."""
+    with open(path, "r", encoding=encoding) as fh:
+        lines = [line.rstrip("\n") for line in fh]
+    try:
+        from pyrsistent import pvector as _pv
+        return _pv(lines)
+    except Exception:
+        return lines
+
+def write_lines(path: str, seq, encoding: str = "utf-8", newline: str = "\n", append: bool = False) -> None:
+    """Write a sequence of lines to a file, adding newline between lines."""
+    mode = "a" if append else "w"
+    with open(path, mode, encoding=encoding) as fh:
+        first = True
+        for item in seq:
+            if not first:
+                fh.write(newline)
+            fh.write(str(item))
+            first = False
+
+def with_open(path: str, mode: str, func, encoding: str = "utf-8"):
+    """Open a file and call func(file), ensuring the file is closed. Returns func's result."""
+    fh = open(path, mode, encoding=encoding)
+    try:
+        return func(fh)
+    finally:
+        try:
+            fh.close()
+        except Exception:
+            pass
+
+def read_stdin(encoding: str = "utf-8") -> str:
+    """Read all of stdin as a string."""
+    import sys
+    data = sys.stdin.buffer.read()
+    try:
+        return data.decode(encoding)
+    except Exception:
+        return data.decode("utf-8", errors="replace")
+
+def read_stdin_lines(encoding: str = "utf-8"):
+    """Read stdin lines into a persistent vector (without trailing newlines)."""
+    import sys
+    lines = [line.rstrip("\n") for line in sys.stdin.read().splitlines()]
+    try:
+        from pyrsistent import pvector as _pv
+        return _pv(lines)
+    except Exception:
+        return lines
+
+def read(path: str, encoding: str = "utf-8") -> str:
+    """Alias of slurp: read entire file as string."""
+    return slurp(path, encoding)
+
+def write(path: str, data: object, encoding: str = "utf-8") -> None:
+    """Alias of spit (overwrite): write stringified data to file."""
+    return spit(path, data, encoding=encoding, append=False)

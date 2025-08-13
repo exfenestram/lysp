@@ -217,70 +217,60 @@ Examples:
 (split predicate collection)        ; Split collection by predicate
 ```
 
+### Additional Helpers
+```lisp
+(foldl f init coll)            ; left fold, returns accumulator
+(group_by coll [key-fn] [val-fn]) ; returns Python dict key -> [vals]
+(papply f args...)             ; partial application, returns function
+```
+
+Examples:
+```lisp
+(foldl + 0 [1 2 3 4])               ; → 10
+(group_by '(a b a c) (lambda (x) x)) ; → {"a": ['a 'a], "b": ['b], "c": ['c]}
+(((papply + 1 2) 3))                 ; → 6
+```
+
 ## Macro System
 
 The compiler implements R7RS-compliant hygienic macros using `syntax-rules`.
 
-### define-syntax
+### Standard Macros (pre-installed)
+
+- `index`: generalized indexing via `__getitem__`
+  - `(index coll i)` → `coll[i]`
+  - `(index coll i j ...)` → `coll[i][j]...`
+  - Works for vectors, lists, tuples, maps, numpy arrays
+
+- `let*`: sequential bindings
+  - `(let* ((x v) (y w) ...) body ...)` ⇒ nested `let`
+
+- `cond`: conditional chains with `else`
+  - `(cond (test body ...) ... (else body ...))`
+
+- Threading macros:
+  - `->` thread-first: `(-> x (f a b) (g c))` ⇒ `(g (f x a b) c)`
+  - `->>` thread-last: `(->> x (f a b) (g c))` ⇒ `(g c (f a b x))`
+
+- Iteration macros:
+  - `for-each`: `(for-each (x coll) body ...)` strict order, side effects ok
+  - `doseq`: nested iteration `(doseq ((x xs) (y ys) ...) body ...)`
+
+Examples:
 ```lisp
-(define-syntax macro-name
-  (syntax-rules (literals...)
-    ((pattern1) template1)
-    ((pattern2) template2)
-    ...))
-```
-
-### Pattern Matching
-- **Literals**: Symbols that must match exactly
-- **Variables**: Symbols that bind to input
-- **Ellipsis**: `...` for variable-length patterns
-
-### Template Expansion
-- **Variables**: Replaced with bound values
-- **Literals**: Preserved as-is
-- **Ellipsis**: Expand to multiple elements
-- **Hygiene**: Automatic identifier renaming. Core special forms and built-ins are kept stable.
-
-### Built-in Macros
-
-#### when
-```lisp
-(define-syntax when
-  (syntax-rules ()
-    ((when test body ...)
-     (if test (begin body ...)))))
-
-(when true (print "hello") (print "world"))
-```
-
-#### unless
-```lisp
-(define-syntax unless
-  (syntax-rules ()
-    ((unless test body ...)
-     (if (not test) (begin body ...)))))
-
-(unless false (print "unless works"))
-```
-
-#### cond
-```lisp
-(define-syntax cond
-  (syntax-rules (else)
-    ((cond (else body ...))
-     (begin body ...))
-    ((cond (test body ...) rest ...)
-     (if test (begin body ...) (cond rest ...)))))
-
-(cond
-  (false (print "first"))
-  (true (print "second"))
-  (else (print "else")))
+(index [10 20 30] 1)                 ; → 20
+(let* ((x 1) (y (+ x 2))) (* x y))   ; → 3
+(-> [1 2 3] (map inc) (take 2))      ; thread-first for first-arg APIs
+(->> [1 2 3] (map inc) (take 2))     ; thread-last for collection-last APIs
+(for-each (x [1 2 3]) (print x))     ; prints 1,2,3
+(doseq ((x [1 2]) (y [10 20])) (print (+ x y))) ; prints 11,21,12,22
 ```
 
 ## Python Integration
 
 ### Importing Python into Lisp
+
+The new import syntax provides a more Lisp-like and flexible way to import Python modules and entities.
 
 #### Module Imports
 ```lisp
@@ -340,6 +330,18 @@ Notes:
 - Import binds the module symbol (e.g., `math`) and all qualified names (e.g., `math.sqrt`).
 - Using `:all` also binds public names as bare symbols (e.g., `sqrt`).
 - The result of `(. ...)` is not called automatically; wrap in `((. ...) args...)` to invoke.
+
+### Class Construction and __init__
+
+Two convenience forms are available:
+- `new` instantiates a class with positional and keyword args.
+- `init` explicitly calls an instance’s `__init__`.
+
+Examples:
+```lisp
+(new Point 1 2 :color :red)
+(init obj :verbose true)
+```
 
 ## Function Application and Keyword Arguments
 
@@ -418,6 +420,30 @@ Functions that call `recur` in a tail position are optimized.
 ; Use the macro
 (define squares (list-comp (* x x) for x in '(1 2 3 4 5)))
 (print squares)  ; → plist([1, 4, 9, 16, 25])
+```
+
+## I/O Helpers
+
+Convenience functions for file and stdin I/O.
+
+```lisp
+(read path [encoding])            ; read entire file (alias of slurp)
+(write path data [encoding])      ; write data (overwrite) (alias of spit)
+(slurp path [encoding])
+(spit path data [encoding append?])
+(read_lines path [encoding])      ; → vector of lines
+(write_lines path seq [encoding newline append?])
+(with_open path mode (lambda (fh) ...))
+(read_stdin [encoding])           ; read all stdin into string
+(read_stdin_lines [encoding])     ; vector of stdin lines
+```
+
+Examples:
+```lisp
+(write "out.txt" "hello")
+(print (read "out.txt"))
+(write_lines "nums.txt" [1 2 3])
+(for-each (ln (read_lines "nums.txt")) (print ln))
 ```
 
 ## REPL Usage

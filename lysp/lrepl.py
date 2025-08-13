@@ -15,7 +15,9 @@ from .builtins import (_pvec, _pmap, _pset, _plist, _kw, _sym, _ratio, loop, rec
                        import_python_module, import_python_from, get_python_entity, get_python_module,
                        list_python_imports, export_to_python, create_python_module, list_lisp_exports,
                        # Dot operator
-                       dot_access)
+                       dot_access,
+                       # I/O helpers
+                       slurp, spit, read_lines, write_lines, with_open, read_stdin, read_stdin_lines)
 from .symbol_table import get_all_symbols, add_symbol, get_symbol, has_symbol, list_symbols
 import ast as A
 
@@ -187,6 +189,14 @@ def initialize_symbol_table():
     
     # Dot operator
     add_symbol("dot_access", dot_access)
+    # I/O helpers
+    add_symbol("slurp", slurp)
+    add_symbol("spit", spit)
+    add_symbol("read_lines", read_lines)
+    add_symbol("write_lines", write_lines)
+    add_symbol("with_open", with_open)
+    add_symbol("read_stdin", read_stdin)
+    add_symbol("read_stdin_lines", read_stdin_lines)
 
 def run_repl():
     print(BANNER)
