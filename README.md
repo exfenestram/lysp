@@ -1,5 +1,12 @@
 # lysp Lisp Compiler
 
+## IMPORTANT NOTE:
+This code is VERY EXPERIMENTAL. Do not 
+expect it to work in any way. It's documentation
+may not relate to the code at all. 
+
+In short, DO NOT USE (yet)
+
 The lysp Lisp compiler is a Schemish Lisp compiler which generates code for the Python AST. Thus it is fully interoperable with Python.
 
 Native data structures are fully immutable. Lysp defines the following structured data types
